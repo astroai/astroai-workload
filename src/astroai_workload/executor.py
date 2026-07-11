@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shlex
 from typing import Any
 
@@ -32,6 +33,20 @@ class RayExecutor:
             runtime_env["working_dir"] = spec.working_directory
         metadata = {"astroai_run_id": spec.run_id}
         metadata.update({str(key): str(value) for key, value in spec.metadata.items()})
+        metadata["astroai_contract"] = "astroai-workload.v1"
+        metadata["astroai_resources"] = json.dumps(
+            spec.resources.to_dict(), sort_keys=True, separators=(",", ":")
+        )
+        metadata["astroai_inputs"] = json.dumps(
+            [product.to_dict() for product in spec.inputs],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        metadata["astroai_expected_outputs"] = json.dumps(
+            [product.to_dict() for product in spec.expected_outputs],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         if spec.resources.memory_bytes is not None:
             metadata["astroai_memory_bytes"] = str(spec.resources.memory_bytes)
         if spec.resources.walltime_seconds is not None:
@@ -55,8 +70,12 @@ class RayExecutor:
             "pending": RunStatus.PENDING,
             "running": RunStatus.RUNNING,
             "succeeded": RunStatus.SUCCEEDED,
+            "completed": RunStatus.SUCCEEDED,
             "failed": RunStatus.FAILED,
             "stopped": RunStatus.STOPPED,
+            "stopping": RunStatus.STOPPED,
+            "cancelled": RunStatus.STOPPED,
+            "canceled": RunStatus.STOPPED,
         }.get(value, RunStatus.UNKNOWN)
 
     def cancel(self, run_id: str) -> None:

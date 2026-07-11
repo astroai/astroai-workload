@@ -1,4 +1,6 @@
+import json
 from enum import Enum
+from types import SimpleNamespace
 
 from astroai_workload import RayExecutor, ResourceRequest, RunSpec, RunStatus
 
@@ -50,8 +52,20 @@ def test_ray_executor_adapts_run_spec_without_managing_cluster() -> None:
     assert client.submission["entrypoint_num_gpus"] == 1
     assert client.submission["metadata"]["astroai_memory_bytes"] == "8000000000"
     assert client.submission["metadata"]["astroai_walltime_seconds"] == "3600"
+    assert client.submission["metadata"]["astroai_contract"] == "astroai-workload.v1"
+    assert json.loads(client.submission["metadata"]["astroai_resources"])["gpus"] == 1
+    assert json.loads(client.submission["metadata"]["astroai_inputs"]) == []
+    assert json.loads(client.submission["metadata"]["astroai_expected_outputs"]) == []
     assert client.submission["runtime_env"]["env_vars"] == {"OMP_NUM_THREADS": "4"}
     assert executor.status(spec.run_id) is RunStatus.RUNNING
     assert executor.logs(spec.run_id) == "logs:photoz-12"
     executor.cancel(spec.run_id)
     assert client.stopped == spec.run_id
+
+
+def test_ray_executor_normalizes_terminal_status_variants() -> None:
+    client = FakeRayClient()
+    executor = RayExecutor(client=client)
+    for raw, expected in (("COMPLETED", RunStatus.SUCCEEDED), ("STOPPING", RunStatus.STOPPED)):
+        client.get_job_status = lambda _run_id, raw=raw: SimpleNamespace(value=raw)
+        assert executor.status("run") is expected
