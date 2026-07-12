@@ -31,6 +31,5 @@ Cluster images and server-side cluster lifecycle remain owned by `containers`.
 Science applications remain responsible for stages, partitions, checkpoints,
 and scientific acceptance.
 
-The package is available under Apache-2.0 OR MIT. The Apache option provides
-an explicit patent grant; the MIT option preserves compatibility with
-GPL-2.0-only consumers.
+The package is available under the MIT License. Third-party dependencies retain
+their own licenses and notices.
