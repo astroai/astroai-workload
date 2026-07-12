@@ -74,6 +74,8 @@ def run_benchmark(
         root.mkdir(parents=True, exist_ok=True)
 
     payload = benchmark_payload()
+    spill_root = root / "ray-spill"
+    spill_root.mkdir()
     start = time.perf_counter()
 
     @ray.remote(num_cpus=1)
@@ -117,7 +119,7 @@ def run_benchmark(
         cancellation_result = "not-cancelled"
 
     duration = time.perf_counter() - start
-    spill_bytes = _tree_bytes(root)
+    spill_bytes = _tree_bytes(spill_root)
     checksum = hashlib.sha256(
         json.dumps(workers, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -128,8 +130,9 @@ def run_benchmark(
         "serialization_bytes": len(payload),
         "retry_result": retry_result,
         "cancellation_result": cancellation_result,
-        "spill_root": str(root),
+        "spill_root": str(spill_root),
         "spill_bytes_before_cleanup": spill_bytes,
+        "spill_path_observed": spill_root.exists(),
         "wall_seconds": duration,
         "peak_rss_bytes": _peak_rss_bytes(),
         "worker_output_sha256": checksum,
