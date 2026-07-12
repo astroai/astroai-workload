@@ -31,5 +31,11 @@ Cluster images and server-side cluster lifecycle remain owned by `containers`.
 Science applications remain responsible for stages, partitions, checkpoints,
 and scientific acceptance.
 
+For a bounded Ray promotion check, run
+`python benchmarks/bench_ray_contract.py --address auto --scratch-root
+/scratch/astroai-workload-benchmark-<run-id>` on an existing two-worker
+cluster. The benchmark measures serialization, retry, cancellation, worker
+accounting, spill-directory usage, and cleanup; it never provisions a cluster.
+
 The package is available under the MIT License. Third-party dependencies retain
 their own licenses and notices.
