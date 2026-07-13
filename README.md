@@ -27,7 +27,7 @@ memory and wall-time requests are recorded in job metadata because Ray Jobs does
 not enforce them directly; a facility wrapper may enforce them at allocation
 time.
 
-Cluster images and server-side cluster lifecycle remain owned by `containers`.
+Cluster images and server-side cluster lifecycle remain owned by [`astroai/astroai-containers`](https://github.com/astroai/astroai-containers) (local checkout may be named `astroai-containers`).
 Science applications remain responsible for stages, partitions, checkpoints,
 and scientific acceptance.
 
@@ -39,3 +39,9 @@ accounting, spill-directory usage, and cleanup; it never provisions a cluster.
 
 The package is available under the MIT License. Third-party dependencies retain
 their own licenses and notices.
+
+## CANFAR / AstroAI sessions
+
+Cluster lifecycle lives in [`astroai/astroai-containers`](https://github.com/astroai/astroai-containers) (Ray head/workers + stock Dashboard).
+Install this package in a project or notebook env when you need `RunSpec` / `RayExecutor`.
+Session hygiene and storage: `astroai-lab`.
