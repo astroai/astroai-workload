@@ -5,3 +5,7 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
+
+# Local MNIST example artifacts
+examples/mnist_cnn/data/
+examples/mnist_cnn/*.pt
