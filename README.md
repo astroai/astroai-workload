@@ -67,7 +67,7 @@ you can submit after workers are up.
 ## What this package is not
 
 It does not create clusters, own science DAGs, or replace `canfar` / AstroAI
-session images. Session hygiene and storage: [`astroai-lab`](https://github.com/sfabbro/canfar-lab).
+session images. Session hygiene and storage: [`astroai-lab`](https://github.com/astroai/astroai-lab).
 Images and Ray manager/worker: [`astroai-containers`](https://github.com/astroai/astroai-containers).
 
 ## Benchmark
