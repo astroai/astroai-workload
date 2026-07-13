@@ -43,8 +43,8 @@ def run_benchmark(
     """Run serialization, retry, cancellation, and cleanup checks on Ray."""
     try:
         import ray
-    except ImportError as exc:  # pragma: no cover - optional dependency
-        raise SystemExit("install astroai-workload[ray] to run this benchmark") from exc
+    except ImportError as exc:  # pragma: no cover
+        raise SystemExit("install astroai-workload (Ray is a required dependency)") from exc
 
     if ray.is_initialized():
         owns_ray = False

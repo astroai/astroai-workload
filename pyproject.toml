@@ -14,10 +14,11 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
-dependencies = []
+dependencies = [
+    "ray[default]>=2.40",
+]
 
 [project.optional-dependencies]
-ray = ["ray[default]>=2.40"]
 dev = ["pytest>=8", "ruff>=0.8"]
 
 [build-system]

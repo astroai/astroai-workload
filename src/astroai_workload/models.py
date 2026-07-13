@@ -2,12 +2,73 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from types import MappingProxyType
 from typing import Any
+
+_MEMORY_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)\s*(B|K|KB|KI|KIB|M|MB|MI|MIB|G|GB|GI|GIB|T|TB|TI|TIB)?\s*$",
+    re.IGNORECASE,
+)
+_MEMORY_FACTORS = {
+    "": 1,
+    "B": 1,
+    "K": 1000,
+    "KB": 1000,
+    "KI": 1024,
+    "KIB": 1024,
+    "M": 1000**2,
+    "MB": 1000**2,
+    "MI": 1024**2,
+    "MIB": 1024**2,
+    "G": 1000**3,
+    "GB": 1000**3,
+    "GI": 1024**3,
+    "GIB": 1024**3,
+    "T": 1000**4,
+    "TB": 1000**4,
+    "TI": 1024**4,
+    "TIB": 1024**4,
+}
+
+
+def parse_memory(value: str | int) -> int:
+    """Parse a human memory size into bytes.
+
+    Accepts ints (already bytes) or strings like ``4GiB``, ``512MiB``, ``8GB``.
+    """
+
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError("memory must be positive")
+        return value
+    match = _MEMORY_RE.match(value)
+    if not match:
+        raise ValueError(f"invalid memory size: {value!r}")
+    amount = float(match.group(1))
+    unit = (match.group(2) or "").upper()
+    factor = _MEMORY_FACTORS[unit]
+    nbytes = int(amount * factor)
+    if nbytes <= 0:
+        raise ValueError("memory must be positive")
+    return nbytes
+
+
+def format_memory(nbytes: int) -> str:
+    """Format bytes as a compact binary unit string (e.g. ``4GiB``)."""
+
+    if nbytes <= 0:
+        raise ValueError("memory must be positive")
+    for unit, factor in (("TiB", 1024**4), ("GiB", 1024**3), ("MiB", 1024**2), ("KiB", 1024)):
+        if nbytes >= factor and nbytes % factor == 0:
+            return f"{nbytes // factor}{unit}"
+        if nbytes >= factor:
+            return f"{nbytes / factor:.2f}".rstrip("0").rstrip(".") + unit
+    return f"{nbytes}B"
 
 
 def _frozen_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -40,8 +101,14 @@ class ResourceRequest:
     memory_bytes: int | None = None
     walltime_seconds: int | None = None
     custom: Mapping[str, float] = field(default_factory=dict)
+    memory: InitVar[str | int | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, memory: str | int | None) -> None:
+        if memory is not None:
+            parsed = parse_memory(memory)
+            if self.memory_bytes is not None and self.memory_bytes != parsed:
+                raise ValueError("memory and memory_bytes disagree")
+            object.__setattr__(self, "memory_bytes", parsed)
         if self.cpus < 0 or self.gpus < 0:
             raise ValueError("cpus and gpus must be non-negative")
         if self.memory_bytes is not None and self.memory_bytes <= 0:
@@ -55,13 +122,16 @@ class ResourceRequest:
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation."""
 
-        return {
+        out: dict[str, Any] = {
             "cpus": self.cpus,
             "gpus": self.gpus,
             "memory_bytes": self.memory_bytes,
             "walltime_seconds": self.walltime_seconds,
             "custom": dict(self.custom),
         }
+        if self.memory_bytes is not None:
+            out["memory"] = format_memory(self.memory_bytes)
+        return out
 
 
 @dataclass(frozen=True, slots=True)

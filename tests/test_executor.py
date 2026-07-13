@@ -2,7 +2,7 @@ import json
 from enum import Enum
 from types import SimpleNamespace
 
-from astroai_workload import RayExecutor, ResourceRequest, RunSpec, RunStatus
+from astroai_workload import RayExecutor, ResourceRequest, RunSpec, RunStatus, resolve_jobs_address
 
 
 class _JobState(Enum):
@@ -28,6 +28,15 @@ class FakeRayClient:
         return f"logs:{run_id}"
 
 
+def test_resolve_jobs_address_prefers_env(monkeypatch) -> None:
+    monkeypatch.delenv("ASTROAI_RAY_JOBS_ADDRESS", raising=False)
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+    assert resolve_jobs_address() == "http://127.0.0.1:8265"
+    monkeypatch.setenv("ASTROAI_RAY_JOBS_ADDRESS", "http://127.0.0.1:9999")
+    assert resolve_jobs_address() == "http://127.0.0.1:9999"
+    assert resolve_jobs_address("http://explicit:8265") == "http://explicit:8265"
+
+
 def test_ray_executor_adapts_run_spec_without_managing_cluster() -> None:
     client = FakeRayClient()
     executor = RayExecutor(client=client)
@@ -37,7 +46,7 @@ def test_ray_executor_adapts_run_spec_without_managing_cluster() -> None:
         resources=ResourceRequest(
             cpus=4,
             gpus=1,
-            memory_bytes=8_000_000_000,
+            memory="8GiB",
             walltime_seconds=3600,
             custom={"node_type": 1},
         ),
@@ -50,7 +59,7 @@ def test_ray_executor_adapts_run_spec_without_managing_cluster() -> None:
     assert client.submission["entrypoint"] == "python 'fit model.py' --seed 7"
     assert client.submission["entrypoint_num_cpus"] == 4
     assert client.submission["entrypoint_num_gpus"] == 1
-    assert client.submission["metadata"]["astroai_memory_bytes"] == "8000000000"
+    assert client.submission["metadata"]["astroai_memory_bytes"] == str(8 * 1024**3)
     assert client.submission["metadata"]["astroai_walltime_seconds"] == "3600"
     assert client.submission["metadata"]["astroai_contract"] == "astroai-workload.v1"
     assert json.loads(client.submission["metadata"]["astroai_resources"])["gpus"] == 1

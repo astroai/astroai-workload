@@ -1,30 +1,53 @@
-"""Optional Ray Jobs implementation of the compute-facility boundary."""
+"""Ray Jobs implementation of the compute-facility boundary."""
 
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from typing import Any
 
+from ray.job_submission import JobSubmissionClient
+
 from .models import RunSpec, RunStatus
+
+_DEFAULT_JOBS_ADDRESS = "http://127.0.0.1:8265"
+_ADDRESS_HINT = (
+    "Ray Jobs address not reachable. On CANFAR: launch a contributed ray-manager "
+    "session, open the connectURL from `canfar ps`, create workers, then run "
+    "RayExecutor() on that manager (ASTROAI_RAY_JOBS_ADDRESS is set there). "
+    "Do not invent hostnames like ray-manager:8265."
+)
+
+
+def resolve_jobs_address(address: str | None = None) -> str:
+    """Resolve the Ray Jobs / Dashboard URL without guessing cluster DNS."""
+
+    if address and address.strip():
+        return address.strip()
+    for key in ("ASTROAI_RAY_JOBS_ADDRESS", "RAY_DASHBOARD_URL"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    return _DEFAULT_JOBS_ADDRESS
 
 
 class RayExecutor:
     """Submit driver commands through the Ray Jobs API.
 
-    Ray is imported lazily so the core contracts remain dependency-free.
-    Cluster creation and worker lifecycle are deliberately outside this class.
+    Cluster creation and worker lifecycle stay outside this class (CANFAR
+    ray-manager + workers). When ``address`` is omitted, uses
+    ``ASTROAI_RAY_JOBS_ADDRESS`` / ``RAY_DASHBOARD_URL``, else localhost:8265
+    (correct inside the ray-manager pod).
     """
 
     def __init__(self, address: str | None = None, *, client: Any | None = None) -> None:
         if client is None:
+            resolved = resolve_jobs_address(address)
             try:
-                from ray.job_submission import JobSubmissionClient
-            except ImportError as exc:  # pragma: no cover - depends on optional install
-                raise ImportError(
-                    "RayExecutor requires the 'ray' extra: pip install 'astroai-workload[ray]'"
-                ) from exc
-            client = JobSubmissionClient(address)
+                client = JobSubmissionClient(resolved)
+            except Exception as exc:  # noqa: BLE001 — surface actionable hint
+                raise ConnectionError(f"{_ADDRESS_HINT} (tried {resolved!r})") from exc
         self._client = client
 
     def submit(self, spec: RunSpec) -> str:

@@ -1,6 +1,6 @@
 """Public AstroAI workload contracts."""
 
-from .executor import RayExecutor
+from .executor import RayExecutor, resolve_jobs_address
 from .facility import ComputeFacility
 from .models import (
     DataProductRef,
@@ -8,6 +8,8 @@ from .models import (
     ResourceRequest,
     RunSpec,
     RunStatus,
+    format_memory,
+    parse_memory,
 )
 
 __all__ = [
@@ -18,4 +20,7 @@ __all__ = [
     "ResourceRequest",
     "RunSpec",
     "RunStatus",
+    "format_memory",
+    "parse_memory",
+    "resolve_jobs_address",
 ]

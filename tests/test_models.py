@@ -30,6 +30,22 @@ def test_resource_request_validates_and_freezes_custom_resources() -> None:
         ResourceRequest(memory_bytes=0)
 
 
+def test_resource_request_accepts_human_memory() -> None:
+    from astroai_workload import format_memory, parse_memory
+
+    assert parse_memory("4GiB") == 4 * 1024**3
+    assert parse_memory("512MiB") == 512 * 1024**2
+    assert parse_memory(1024) == 1024
+    req = ResourceRequest(cpus=1, memory="4GiB")
+    assert req.memory_bytes == 4 * 1024**3
+    assert req.to_dict()["memory"] == "4GiB"
+    assert format_memory(req.memory_bytes) == "4GiB"
+    with pytest.raises(ValueError):
+        ResourceRequest(memory="4GiB", memory_bytes=1)
+    with pytest.raises(ValueError):
+        parse_memory("nope")
+
+
 def test_run_spec_requires_identity_and_command() -> None:
     with pytest.raises(ValueError):
         RunSpec(run_id="", command=("true",))
