@@ -1,29 +1,42 @@
-# MNIST CNN on CANFAR Ray
+# MNIST CNN example
 
-Tiny train + infer example for `astroai-workload` after a **ray-manager**
-cluster has workers.
+Train a tiny CNN with `astroai-workload` on an AstroAI **ray-manager** cluster
+(CANFAR Science Platform).
 
 ## Prerequisites
 
-1. `canfar login` (once, from webterm/vscode).
-2. Launch contributed `ray-manager`, open **connectURL** from `canfar ps`.
-3. Create workers in the manager UI; open `connectURL/dashboard/`.
-4. Run these scripts **on the ray-manager session** (Jobs address is already
-   `ASTROAI_RAY_JOBS_ADDRESS=http://127.0.0.1:8265`).
+Cluster lifecycle is documented in
+[astroai-containers `docs/RAY.md`](https://github.com/astroai/astroai-containers/blob/main/docs/RAY.md).
+Summary:
 
-Torch is **not** a package dependency — install it for the job runtime, e.g.:
+1. `canfar login`
+2. Launch contributed `images.canfar.net/astroai/ray-manager:<tag>` (prefer **≥8 GiB**)
+3. Open the session **connectURL** from `canfar ps`, create workers, open `connectURL/dashboard/`
+4. Run the scripts below **on the ray-manager session** — Jobs uses
+   `ASTROAI_RAY_JOBS_ADDRESS=http://127.0.0.1:8265`
+
+Torch is installed for the job runtime (not a dependency of `astroai-workload`):
 
 ```bash
 pip install torch torchvision
-# or pin in a pixi/uv project and set working_directory accordingly
+# or pin in a pixi/uv project and set RunSpec.working_directory accordingly
+```
+
+```mermaid
+flowchart TD
+  L[canfar login] --> M[ray-manager Running]
+  M --> W[Workers joined]
+  W --> S["python submit.py"]
+  S --> J[Ray Job trains CNN]
+  J --> I["python infer.py --ckpt mnist.pt"]
 ```
 
 ## Run
 
 ```bash
 cd examples/mnist_cnn
-python submit.py          # submits train.py via RayExecutor()
+python submit.py                 # RayExecutor → train.py
 python infer.py --ckpt mnist.pt
 ```
 
-Or submit `train.py` from the Ray Dashboard Jobs UI with the same entrypoint.
+You can also submit the same `train.py` entrypoint from Dashboard → Jobs.
