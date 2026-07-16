@@ -39,7 +39,7 @@ jobs:
           fi
           echo "OK: uv lock --check tripped on TOML-mangled uv.lock"
 
-      - name: Lockfile integrity (DO NOT add continue-on-error — uv/gate stays hard)
+      - name: Lockfile integrity — DO NOT add continue-on-error — uv lock --check
         # Hard-fail on lockfile drift. uv lock --check is a graph-equality
         # check (resolver output matches locked graph), not byte-equality:
         # it catches unresolved pyproject.toml changes silently sneaking past
