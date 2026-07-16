@@ -118,6 +118,17 @@ def run_benchmark(
     else:  # pragma: no cover - cancellation should always interrupt this task
         cancellation_result = "not-cancelled"
 
+    # Head->worker object transfer round-trip. On CANFAR with multiple Ray
+    # nodes this transitively exercises object-manager paths between head
+    # and a worker (the preflight only checks the join port, 6379); under
+    # `--local` the put/get stays in-process and acts as a smoke check.
+    # Uses bytes (no numpy) so no new deps.
+    big_payload = b"x" * (64 * 1024 * 1024)
+    transfer_start = time.perf_counter()
+    big_ref = ray.put(big_payload)
+    big_got = ray.get(big_ref)
+    transfer_seconds = time.perf_counter() - transfer_start
+
     duration = time.perf_counter() - start
     spill_bytes = _tree_bytes(spill_root)
     checksum = hashlib.sha256(
@@ -136,6 +147,9 @@ def run_benchmark(
         "wall_seconds": duration,
         "peak_rss_bytes": _peak_rss_bytes(),
         "worker_output_sha256": checksum,
+        "object_transfer_bytes": len(big_payload),
+        "object_transfer_equal": big_got == big_payload,
+        "object_transfer_seconds": transfer_seconds,
         "cleanup_ok": False,
     }
     if temporary:
