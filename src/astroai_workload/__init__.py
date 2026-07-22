@@ -1,6 +1,8 @@
 """Public AstroAI workload contracts."""
 
-from .executor import RayExecutor, resolve_jobs_address
+__version__ = "0.1.0"
+
+from .executor import RayExecutor, resolve_jobs_address, run_script
 from .facility import ComputeFacility
 from .models import (
     DataProductRef,
@@ -23,4 +25,6 @@ __all__ = [
     "format_memory",
     "parse_memory",
     "resolve_jobs_address",
+    "run_script",
+    "__version__",
 ]

@@ -119,6 +119,17 @@ class ResourceRequest:
             raise ValueError("custom resource values must be non-negative")
         object.__setattr__(self, "custom", _frozen_mapping(self.custom))
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ResourceRequest:
+        """Construct from a JSON-compatible dict (inverse of ``to_dict``)."""
+        return cls(
+            cpus=data.get("cpus", 1.0),
+            gpus=data.get("gpus", 0.0),
+            memory_bytes=data.get("memory_bytes"),
+            walltime_seconds=data.get("walltime_seconds"),
+            custom=data.get("custom", {}),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation."""
 
@@ -150,6 +161,17 @@ class DataProductRef:
         if self.size_bytes is not None and self.size_bytes < 0:
             raise ValueError("size_bytes must be non-negative")
         object.__setattr__(self, "metadata", _frozen_mapping(self.metadata))
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DataProductRef:
+        """Construct from a JSON-compatible dict (inverse of ``to_dict``)."""
+        return cls(
+            uri=data["uri"],
+            media_type=data.get("media_type"),
+            checksum=data.get("checksum"),
+            size_bytes=data.get("size_bytes"),
+            metadata=data.get("metadata", {}),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation."""
@@ -205,6 +227,22 @@ class RunSpec:
             "metadata": dict(self.metadata),
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RunSpec:
+        """Construct from a JSON-compatible dict (inverse of ``to_dict``)."""
+        return cls(
+            run_id=data["run_id"],
+            command=tuple(data["command"]),
+            resources=ResourceRequest.from_dict(data.get("resources", {})),
+            inputs=tuple(DataProductRef.from_dict(d) for d in data.get("inputs", ())),
+            expected_outputs=tuple(
+                DataProductRef.from_dict(d) for d in data.get("expected_outputs", ())
+            ),
+            environment=data.get("environment", {}),
+            working_directory=data.get("working_directory"),
+            metadata=data.get("metadata", {}),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ProvenanceManifest:
@@ -242,3 +280,22 @@ class ProvenanceManifest:
             "created_at": self.created_at.isoformat(),
             "schema_version": self.schema_version,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ProvenanceManifest:
+        """Construct from a JSON-compatible dict (inverse of ``to_dict``)."""
+        created = data.get("created_at", "")
+        if isinstance(created, str) and created:
+            created_at = datetime.fromisoformat(created)
+        else:
+            created_at = datetime.now(timezone.utc)
+        return cls(
+            run_id=data["run_id"],
+            inputs=tuple(DataProductRef.from_dict(d) for d in data.get("inputs", ())),
+            outputs=tuple(DataProductRef.from_dict(d) for d in data.get("outputs", ())),
+            parameters=data.get("parameters", {}),
+            code_revision=data.get("code_revision"),
+            environment=data.get("environment", {}),
+            created_at=created_at,
+            schema_version=data.get("schema_version", "1.0"),
+        )
