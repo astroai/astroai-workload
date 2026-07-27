@@ -77,17 +77,19 @@ class RayExecutor:
             metadata["astroai_memory_bytes"] = str(spec.resources.memory_bytes)
         if spec.resources.walltime_seconds is not None:
             metadata["astroai_walltime_seconds"] = str(spec.resources.walltime_seconds)
-        return str(
-            self._client.submit_job(
-                entrypoint=shlex.join(spec.command),
-                submission_id=spec.run_id,
-                runtime_env=runtime_env,
-                metadata=metadata,
-                entrypoint_num_cpus=spec.resources.cpus,
-                entrypoint_num_gpus=spec.resources.gpus,
-                entrypoint_resources=dict(spec.resources.custom),
-            )
-        )
+        submit_kwargs: dict[str, Any] = {
+            "entrypoint": shlex.join(spec.command),
+            "submission_id": spec.run_id,
+            "runtime_env": runtime_env,
+            "metadata": metadata,
+            "entrypoint_num_cpus": spec.resources.cpus,
+            "entrypoint_num_gpus": spec.resources.gpus,
+            "entrypoint_resources": dict(spec.resources.custom),
+        }
+        # Honor memory as a real Ray Jobs entrypoint reservation (not metadata-only).
+        if spec.resources.memory_bytes is not None:
+            submit_kwargs["entrypoint_memory"] = spec.resources.memory_bytes
+        return str(self._client.submit_job(**submit_kwargs))
 
     def status(self, run_id: str) -> RunStatus:
         raw = self._client.get_job_status(run_id)
@@ -109,6 +111,30 @@ class RayExecutor:
 
     def logs(self, run_id: str) -> str:
         return str(self._client.get_job_logs(run_id))
+
+    def list_jobs(self) -> list[dict[str, Any]]:
+        """Return Jobs known to the Dashboard API (newest-friendly summary rows)."""
+        raw = self._client.list_jobs()
+        rows: list[dict[str, Any]] = []
+        for job in raw or ():
+            if isinstance(job, dict):
+                rows.append(dict(job))
+                continue
+            status = getattr(job, "status", None)
+            status_value = getattr(status, "value", status)
+            rows.append(
+                {
+                    "submission_id": getattr(job, "submission_id", None)
+                    or getattr(job, "job_id", None),
+                    "job_id": getattr(job, "job_id", None),
+                    "status": str(status_value).lower() if status_value is not None else None,
+                    "entrypoint": getattr(job, "entrypoint", None),
+                    "start_time": getattr(job, "start_time", None),
+                    "end_time": getattr(job, "end_time", None),
+                    "metadata": dict(getattr(job, "metadata", None) or {}),
+                }
+            )
+        return rows
 
     def wait(
         self,

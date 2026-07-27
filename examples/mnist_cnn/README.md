@@ -36,6 +36,7 @@ flowchart TD
 ```bash
 cd examples/mnist_cnn
 python submit.py                 # RayExecutor → train.py
+# or: astroai-workload run train.py --epochs 1 --ckpt mnist.pt
 python infer.py --ckpt mnist.pt
 ```
 

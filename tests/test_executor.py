@@ -27,6 +27,19 @@ class FakeRayClient:
     def get_job_logs(self, run_id):
         return f"logs:{run_id}"
 
+    def list_jobs(self):
+        return [
+            SimpleNamespace(
+                submission_id="photoz-12",
+                job_id="raysubmit_1",
+                status=_JobState.RUNNING,
+                entrypoint="python train.py",
+                start_time=1,
+                end_time=None,
+                metadata={"astroai_run_id": "photoz-12"},
+            )
+        ]
+
 
 def test_resolve_jobs_address_prefers_env(monkeypatch) -> None:
     monkeypatch.delenv("ASTROAI_RAY_JOBS_ADDRESS", raising=False)
@@ -59,6 +72,7 @@ def test_ray_executor_adapts_run_spec_without_managing_cluster() -> None:
     assert client.submission["entrypoint"] == "python 'fit model.py' --seed 7"
     assert client.submission["entrypoint_num_cpus"] == 4
     assert client.submission["entrypoint_num_gpus"] == 1
+    assert client.submission["entrypoint_memory"] == 8 * 1024**3
     assert client.submission["metadata"]["astroai_memory_bytes"] == str(8 * 1024**3)
     assert client.submission["metadata"]["astroai_walltime_seconds"] == "3600"
     assert client.submission["metadata"]["astroai_contract"] == "astroai-workload.v1"
@@ -70,6 +84,17 @@ def test_ray_executor_adapts_run_spec_without_managing_cluster() -> None:
     assert executor.logs(spec.run_id) == "logs:photoz-12"
     executor.cancel(spec.run_id)
     assert client.stopped == spec.run_id
+    jobs = executor.list_jobs()
+    assert jobs[0]["submission_id"] == "photoz-12"
+    assert jobs[0]["status"] == "running"
+
+
+def test_ray_executor_omits_entrypoint_memory_when_unset() -> None:
+    client = FakeRayClient()
+    executor = RayExecutor(client=client)
+    spec = RunSpec(run_id="lite", command=("python", "-c", "print(1)"))
+    executor.submit(spec)
+    assert "entrypoint_memory" not in client.submission
 
 
 def test_ray_executor_normalizes_terminal_status_variants() -> None:
