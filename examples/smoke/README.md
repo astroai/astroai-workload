@@ -14,7 +14,7 @@ Minimal end-to-end check that `astroai-workload` can submit a Job on a live
 
 ```bash
 # CLI (preferred — on PATH in current ray-manager images)
-astroai-workload run job.py --cpus 1 --memory 1GiB
+astroai-workload run job.py --cpus 1
 
 # or Python helper
 python submit.py

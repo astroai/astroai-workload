@@ -46,7 +46,14 @@ def cmd_run(
     ctx: typer.Context,
     script: Annotated[Path, typer.Argument(help="Python script to run as a Ray Job.")],
     cpus: Annotated[float, typer.Option("--cpus", help="Entrypoint CPUs.")] = 1.0,
-    memory: Annotated[str, typer.Option("--memory", "-m", help="Entrypoint memory.")] = "4GiB",
+    memory: Annotated[
+        Optional[str],
+        typer.Option(
+            "--memory",
+            "-m",
+            help="Reserve entrypoint memory (e.g. 8GiB). Omit unless the cluster has enough free RAM.",
+        ),
+    ] = None,
     gpus: Annotated[float, typer.Option("--gpus", help="Entrypoint GPUs.")] = 0.0,
     address: Annotated[
         Optional[str],
@@ -119,7 +126,14 @@ def cmd_submit(
         typer.Argument(help="Entrypoint argv when --cmd is omitted."),
     ] = None,
     cpus: Annotated[float, typer.Option("--cpus")] = 1.0,
-    memory: Annotated[str, typer.Option("--memory", "-m")] = "4GiB",
+    memory: Annotated[
+        Optional[str],
+        typer.Option(
+            "--memory",
+            "-m",
+            help="Reserve entrypoint memory (e.g. 8GiB). Omit unless the cluster has enough free RAM.",
+        ),
+    ] = None,
     gpus: Annotated[float, typer.Option("--gpus")] = 0.0,
     address: Annotated[Optional[str], typer.Option("--address")] = None,
     working_directory: Annotated[Optional[Path], typer.Option("--cwd")] = None,
@@ -147,10 +161,13 @@ def cmd_submit(
     import uuid
 
     rid = run_id or f"run-{uuid.uuid4().hex[:8]}"
+    resources = ResourceRequest(cpus=cpus, gpus=gpus)
+    if memory is not None:
+        resources = ResourceRequest(cpus=cpus, gpus=gpus, memory=memory)
     spec = RunSpec(
         run_id=rid,
         command=command,
-        resources=ResourceRequest(cpus=cpus, memory=memory, gpus=gpus),
+        resources=resources,
         environment=env_map,
         working_directory=str(working_directory) if working_directory else None,
     )

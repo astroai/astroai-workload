@@ -14,7 +14,6 @@ def main() -> None:
     status, logs = run_script(
         HERE / "job.py",
         cpus=1,
-        memory="1GiB",
         run_id=None,
     )
     print(logs)

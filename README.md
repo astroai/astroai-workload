@@ -90,8 +90,8 @@ print(ex.status(job))
 print(ex.logs(job))
 ```
 
-`ResourceRequest.memory` is passed to Ray as `entrypoint_memory` (bytes), not
-metadata-only.
+`ResourceRequest.memory` / `--memory` reserves Ray `entrypoint_memory` when set.
+Omit it for small clusters unless you know free RAM is available.
 
 ## Install (outside the baked image)
 

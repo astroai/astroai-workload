@@ -174,7 +174,7 @@ def run_script(
     *,
     address: str | None = None,
     cpus: float = 1,
-    memory: str = "4GiB",
+    memory: str | None = None,
     gpus: float = 0,
     args: list[str] | None = None,
     env: dict[str, str] | None = None,
@@ -185,6 +185,9 @@ def run_script(
     """Run a Python script as a Ray Job and wait for completion.
 
     Zero Ray knowledge required — just point at a script.
+
+    ``memory`` (e.g. ``\"4GiB\"``) reserves Ray entrypoint memory when set.
+    Leave it ``None`` unless the cluster has enough free memory to schedule.
 
     Returns ``(status, logs)``.
 
@@ -203,10 +206,14 @@ def run_script(
     if args:
         command.extend(args)
 
+    resources = ResourceRequest(cpus=cpus, gpus=gpus)
+    if memory is not None:
+        resources = ResourceRequest(cpus=cpus, gpus=gpus, memory=memory)
+
     spec = RunSpec(
         run_id=run_id or f"run-{uuid.uuid4().hex[:8]}",
         command=tuple(command),
-        resources=ResourceRequest(cpus=cpus, memory=memory, gpus=gpus),
+        resources=resources,
         environment=env or {},
         working_directory=working_directory or str(script_path.parent.resolve()),
     )
