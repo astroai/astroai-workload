@@ -10,8 +10,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from ray.job_submission import JobSubmissionClient
-
 from .models import ResourceRequest, RunSpec, RunStatus
 
 _DEFAULT_JOBS_ADDRESS = "http://127.0.0.1:8265"
@@ -21,6 +19,21 @@ _ADDRESS_HINT = (
     "RayExecutor() on that manager (ASTROAI_RAY_JOBS_ADDRESS is set there). "
     "Do not invent hostnames like ray-manager:8265."
 )
+_RAY_MISSING_HINT = (
+    "Ray is not installed in this Python. Install the astroai-workload[jobs] "
+    "extra (or run inside a ray-manager / ray-worker image venv) to use the Ray "
+    "Jobs client. Cluster lifecycle (`astroai-workload cluster ...`) does not "
+    "need Ray."
+)
+
+
+def _job_submission_client_class() -> type[Any]:
+    """Import the Ray Jobs client lazily; raise a clear error when Ray is absent."""
+    try:
+        from ray.job_submission import JobSubmissionClient
+    except ImportError as exc:  # noqa: BLE001 — any failure to import ray is actionable
+        raise RuntimeError(_RAY_MISSING_HINT) from exc
+    return JobSubmissionClient
 
 
 def resolve_jobs_address(address: str | None = None) -> str:
@@ -38,8 +51,8 @@ def resolve_jobs_address(address: str | None = None) -> str:
 class RayExecutor:
     """Submit driver commands through the Ray Jobs API.
 
-    Cluster creation and worker lifecycle stay outside this class (CANFAR
-    ray-manager + workers). When ``address`` is omitted, uses
+    Cluster creation and worker lifecycle stay in :mod:`astroai_workload.cluster`
+    (CANFAR ray-manager + workers). When ``address`` is omitted, uses
     ``ASTROAI_RAY_JOBS_ADDRESS`` / ``RAY_DASHBOARD_URL``, else localhost:8265
     (correct inside the ray-manager pod).
     """
@@ -47,8 +60,9 @@ class RayExecutor:
     def __init__(self, address: str | None = None, *, client: Any | None = None) -> None:
         if client is None:
             resolved = resolve_jobs_address(address)
+            cls = _job_submission_client_class()
             try:
-                client = JobSubmissionClient(resolved)
+                client = cls(resolved)
             except Exception as exc:  # noqa: BLE001 — surface actionable hint
                 raise ConnectionError(f"{_ADDRESS_HINT} (tried {resolved!r})") from exc
         self._client = client
@@ -186,7 +200,7 @@ def run_script(
 
     Zero Ray knowledge required — just point at a script.
 
-    ``memory`` (e.g. ``\"4GiB\"``) reserves Ray entrypoint memory when set.
+    ``memory`` (e.g. ``"4GiB"``) reserves Ray entrypoint memory when set.
     Leave it ``None`` unless the cluster has enough free memory to schedule.
 
     Returns ``(status, logs)``.

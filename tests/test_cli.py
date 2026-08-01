@@ -9,7 +9,6 @@ from typer.testing import CliRunner
 from astroai_workload.cli import app
 from astroai_workload.models import RunStatus
 
-
 runner = CliRunner()
 
 
