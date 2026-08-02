@@ -45,9 +45,16 @@ autoscaler_app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+mcp_app = typer.Typer(
+    name="mcp",
+    help="MCP server over stdio exposing Ray cluster tools (ensure/status/scale/dashboard).",
+    no_args_is_help=True,
+    add_completion=False,
+)
 app.add_typer(cluster_app)
 app.add_typer(dashboard_app)
 app.add_typer(autoscaler_app)
+app.add_typer(mcp_app)
 
 
 def _print_json(payload: Any) -> None:
@@ -342,24 +349,24 @@ def cmd_list(
 # =====================================================================
 
 
-@cluster_app.command("ensure")
-def cluster_cmd_ensure(
-    address: Annotated[
-        str | None,
-        typer.Option("--address", help="Manager connect URL or Jobs API URL."),
-    ] = None,
-    workers: Annotated[int, typer.Option("--workers", help="Worker sessions to launch.")] = 0,
-    cores: Annotated[int, typer.Option("--cores", help="CPUs per worker.")] = 1,
-    ram: Annotated[int, typer.Option("--ram", help="RAM GiB per worker.")] = 4,
-    gpus: Annotated[int, typer.Option("--gpus", help="GPUs per worker.")] = 0,
-    timeout: Annotated[int, typer.Option("--timeout", help="Wait timeout (seconds).")] = 1800,
-    as_json: Annotated[bool, typer.Option("--json")] = False,
-) -> None:
+def cluster_ensure_payload(
+    *,
+    address: str | None = None,
+    workers: int = 0,
+    cores: int = 1,
+    ram: int = 4,
+    gpus: int = 0,
+    timeout: int = 1800,
+) -> dict[str, Any]:
     """Ensure a ray-manager is running; optionally launch workers.
 
-    Resolves the manager (env → persisted connect URL → `canfar ps` discovery),
-    waits for /readyz, optionally creates workers, and prints the Jobs address
-    + Dashboard URL. Safe to call from agents (orx, hermes, kilo).
+    Single source of truth shared by ``astroai-workload cluster ensure`` and the
+    MCP ``cluster_ensure`` tool. Resolves the manager (env → persisted connect
+    URL → ``canfar ps`` discovery), waits for /readyz, optionally creates
+    workers, and returns the Jobs address + Dashboard URL as a JSON-safe dict.
+
+    Raises RuntimeError with a human-readable message when no manager can be
+    resolved or the manager is not ready.
     """
     from .dashboard import persist_connect_url, resolve_dashboard_url
 
@@ -368,7 +375,7 @@ def cluster_cmd_ensure(
     else:
         # A freshly-created manager is Pending and may not expose its connect
         # URL yet — poll discovery briefly before giving up (agent one-click
-        # flow depends on this). Bounded by the user's --timeout when set.
+        # flow depends on this). Bounded by the caller's timeout when set.
         max_polls = max(1, min(timeout // 5, 24)) if timeout else 12
         base = ""
         for _ in range(max_polls):
@@ -380,13 +387,11 @@ def cluster_cmd_ensure(
                 break
             time.sleep(5)
     if not base:
-        raise typer.BadParameter(
-            "No manager found. Set ASTROAI_RAY_JOBS_ADDRESS or pass --address."
-        )
+        raise RuntimeError("No manager found. Set ASTROAI_RAY_JOBS_ADDRESS or pass --address.")
 
     client = _manager_client(base)
     if not client.wait_ready(timeout_seconds=min(timeout, 600)):
-        raise typer.BadParameter(f"Manager not ready at {base} (check auth / preflight).")
+        raise RuntimeError(f"Manager not ready at {base} (check auth / preflight).")
 
     manager_name = base.rstrip("/").rsplit("/", 1)[-1]
     persist_connect_url(manager_name or "default", base)
@@ -407,7 +412,7 @@ def cluster_cmd_ensure(
 
     status = client.status()
     jobs_url = base.rstrip("/") + "/dashboard"
-    result = {
+    result: dict[str, Any] = {
         "manager_url": base,
         "jobs_address": jobs_url,
         "dashboard_url": jobs_url,
@@ -417,15 +422,48 @@ def cluster_cmd_ensure(
     }
     if created is not None:
         result["create_accepted"] = created.get("accepted", False)
+    return result
+
+
+@cluster_app.command("ensure")
+def cluster_cmd_ensure(
+    address: Annotated[
+        str | None,
+        typer.Option("--address", help="Manager connect URL or Jobs API URL."),
+    ] = None,
+    workers: Annotated[int, typer.Option("--workers", help="Worker sessions to launch.")] = 0,
+    cores: Annotated[int, typer.Option("--cores", help="CPUs per worker.")] = 1,
+    ram: Annotated[int, typer.Option("--ram", help="RAM GiB per worker.")] = 4,
+    gpus: Annotated[int, typer.Option("--gpus", help="GPUs per worker.")] = 0,
+    timeout: Annotated[int, typer.Option("--timeout", help="Wait timeout (seconds).")] = 1800,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Ensure a ray-manager is running; optionally launch workers.
+
+    Resolves the manager (env → persisted connect URL → `canfar ps` discovery),
+    waits for /readyz, optionally creates workers, and prints the Jobs address
+    + Dashboard URL. Safe to call from agents (orx, hermes, kilo).
+    """
+    try:
+        result = cluster_ensure_payload(
+            address=address, workers=workers, cores=cores, ram=ram, gpus=gpus, timeout=timeout
+        )
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     if as_json:
         _print_json(result)
     else:
-        print(f"manager:     {base}")
-        print(f"jobs/dash:   {jobs_url}")
+        print(f"manager:     {result['manager_url']}")
+        print(f"jobs/dash:   {result['jobs_address']}")
         print(f"phase:       {result['cluster_phase']}  joined: {result['joined_workers']}")
     # Hint for the caller's shell (a CLI cannot export into its parent).
-    print(f"export ASTROAI_RAY_JOBS_ADDRESS={jobs_url}")
+    print(f"export ASTROAI_RAY_JOBS_ADDRESS={result['jobs_address']}")
     raise typer.Exit(0)
+
+
+def cluster_status_payload(address: str | None = None) -> dict[str, Any]:
+    """Cluster status payload (manager /api/v1/status) — CLI + MCP shared."""
+    return _cluster_payload_from(address)
 
 
 @cluster_app.command("status")
@@ -434,7 +472,7 @@ def cluster_cmd_status(
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Show CANFAR Ray cluster status (workers, phase, auth)."""
-    payload = _cluster_payload_from(address)
+    payload = cluster_status_payload(address)
     if as_json:
         _print_json(payload)
         return
@@ -467,21 +505,21 @@ def cluster_cmd_stop(
         print(f"cluster stopped (phase={cluster.get('phase')})")
 
 
-@cluster_app.command("scale")
-def cluster_cmd_scale(
-    workers: Annotated[int, typer.Argument(help="Target number of worker sessions.")],
-    address: Annotated[str | None, typer.Option("--address")] = None,
-    cores: Annotated[int, typer.Option("--cores", help="CPUs per new worker.")] = 1,
-    ram: Annotated[int, typer.Option("--ram", help="RAM GiB per new worker.")] = 4,
-    gpus: Annotated[int, typer.Option("--gpus", help="GPUs per new worker.")] = 0,
-    timeout: Annotated[int, typer.Option("--timeout", help="Wait timeout (seconds).")] = 1800,
-    as_json: Annotated[bool, typer.Option("--json")] = False,
-) -> None:
-    """Scale worker sessions up or down to *workers*.
+def cluster_scale_payload(
+    workers: int,
+    *,
+    address: str | None = None,
+    cores: int = 1,
+    ram: int = 4,
+    gpus: int = 0,
+    timeout: int = 1800,
+) -> dict[str, Any]:
+    """Scale worker sessions up or down to *workers* — CLI + MCP shared.
 
     Launches new workers via the manager API when the cluster is smaller than
     the target, and destroys excess workers when larger. For true on-demand
     autoscaling, enable the Ray autoscaler (see `astroai-workload autoscaler`).
+    Returns a JSON-safe result dict.
     """
     client = _manager_client(address)
     status = client.status()
@@ -506,21 +544,38 @@ def cluster_cmd_scale(
     else:
         result = status
 
+    return {
+        "target": target,
+        "previous": current,
+        "phase": (result.get("cluster") or {}).get("phase"),
+        "joined_workers": result.get("joined_workers", 0),
+    }
+
+
+@cluster_app.command("scale")
+def cluster_cmd_scale(
+    workers: Annotated[int, typer.Argument(help="Target number of worker sessions.")],
+    address: Annotated[str | None, typer.Option("--address")] = None,
+    cores: Annotated[int, typer.Option("--cores", help="CPUs per new worker.")] = 1,
+    ram: Annotated[int, typer.Option("--ram", help="RAM GiB per new worker.")] = 4,
+    gpus: Annotated[int, typer.Option("--gpus", help="GPUs per new worker.")] = 0,
+    timeout: Annotated[int, typer.Option("--timeout", help="Wait timeout (seconds).")] = 1800,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Scale worker sessions up or down to *workers*.
+
+    Launches new workers via the manager API when the cluster is smaller than
+    the target, and destroys excess workers when larger. For true on-demand
+    autoscaling, enable the Ray autoscaler (see `astroai-workload autoscaler`).
+    """
+    result = cluster_scale_payload(
+        workers, address=address, cores=cores, ram=ram, gpus=gpus, timeout=timeout
+    )
     if as_json:
-        _print_json(
-            {
-                "target": target,
-                "previous": current,
-                "phase": (result.get("cluster") or {}).get("phase"),
-                "joined_workers": result.get("joined_workers", 0),
-            }
-        )
+        _print_json(result)
     else:
-        print(f"target: {target}  previous: {current}")
-        print(
-            f"phase:  {(result.get('cluster') or {}).get('phase')}  "
-            f"joined: {result.get('joined_workers', 0)}"
-        )
+        print(f"target: {result['target']}  previous: {result['previous']}")
+        print(f"phase:  {result['phase']}  joined: {result['joined_workers']}")
     raise typer.Exit(0)
 
 
@@ -574,20 +629,32 @@ def autoscaler_cmd_write_config(
 # =====================================================================
 
 
+def dashboard_url_payload(address: str | None = None) -> str:
+    """Resolve the Ray Dashboard / Jobs URL — CLI + MCP shared.
+
+    Raises RuntimeError when nothing is resolvable.
+    """
+    from .dashboard import resolve_dashboard_url
+
+    url = resolve_dashboard_url(address)
+    if not url:
+        raise RuntimeError(
+            "No dashboard URL resolvable. Start a ray-manager session and run "
+            "`astroai-workload cluster ensure` first."
+        )
+    return url
+
+
 @dashboard_app.command("url")
 def dashboard_cmd_url(
     address: Annotated[str | None, typer.Option("--address")] = None,
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Print the Ray Dashboard / Jobs URL for the current cluster."""
-    from .dashboard import resolve_dashboard_url
-
-    url = resolve_dashboard_url(address)
-    if not url:
-        raise typer.BadParameter(
-            "No dashboard URL resolvable. Start a ray-manager session and run "
-            "`astroai-workload cluster ensure` first."
-        )
+    try:
+        url = dashboard_url_payload(address)
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     if as_json:
         _print_json({"dashboard_url": url})
     else:
@@ -632,6 +699,22 @@ def dashboard_cmd_proxy(
         pass
     finally:
         proxy.stop()
+
+
+@mcp_app.command("serve")
+def mcp_cmd_serve() -> None:
+    """Run the MCP server over stdio (initialize / tools/list / tools/call).
+
+    Exposes the Ray cluster tools (ensure/status/scale/dashboard) to MCP-capable
+    agents (hermes, openclaw, ...) — no Ray install required. Wire it up with::
+
+        astroai-workload mcp serve
+
+    and point the client at ``command: astroai-workload, args: [mcp, serve]``.
+    """
+    from .mcp import serve_stdio
+
+    raise typer.Exit(serve_stdio())
 
 
 @dashboard_app.command("iframe")
