@@ -9,10 +9,10 @@ from unittest.mock import MagicMock
 import pytest
 
 # Stub ray (only the NodeProvider base is needed) + canfar client.
+# The stub mirrors Ray 2.56's public module path: ray.autoscaler.node_provider.
 _ray = types.ModuleType("ray")
 _ray_autoscaler = types.ModuleType("ray.autoscaler")
-_ray_private = types.ModuleType("ray.autoscaler._private")
-_ray_np = types.ModuleType("ray.autoscaler._private.node_provider")
+_ray_np = types.ModuleType("ray.autoscaler.node_provider")
 
 
 class _NodeProvider:
@@ -22,13 +22,11 @@ class _NodeProvider:
 
 
 _ray_np.NodeProvider = _NodeProvider
-_ray_private.node_provider = _ray_np
-_ray_autoscaler._private = _ray_private
+_ray_autoscaler.node_provider = _ray_np
 _ray.autoscaler = _ray_autoscaler
 sys.modules.setdefault("ray", _ray)
 sys.modules.setdefault("ray.autoscaler", _ray_autoscaler)
-sys.modules.setdefault("ray.autoscaler._private", _ray_private)
-sys.modules.setdefault("ray.autoscaler._private.node_provider", _ray_np)
+sys.modules.setdefault("ray.autoscaler.node_provider", _ray_np)
 
 _canfar = types.ModuleType("canfar")
 _canfar_models = types.ModuleType("canfar.models")
@@ -182,3 +180,40 @@ def test_write_autoscaling_config(tmp_path: pytest.MonkeyPatch) -> None:
     assert "max_workers: 8" in text
     assert '"cores": 4' in text
     assert "astroai_workload.autoscaler.CanfarNodeProvider" in text
+    # Keys Ray 2.x StandardAutoscaler.reset() hard-requires (KeyError otherwise).
+    for required in (
+        "head_node_type: ray.head.default",
+        "idle_timeout_minutes: 5",
+        "auth: {}",
+        "head_setup_commands: []",
+        "head_start_ray_commands: []",
+        "worker_setup_commands: []",
+        "worker_start_ray_commands: []",
+    ):
+        assert required in text, f"missing {required}"
+    # memory is bytes (16 GiB = 16 * 1024**3), not MiB.
+    assert f"memory: {16 * 1024 * 1024 * 1024}" in text
+    assert "memory: 16384" not in text
+
+
+def test_provider_merges_nested_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ray passes the whole provider dict; options live under `config`."""
+    provider = CanfarNodeProvider(
+        {
+            "type": "external",
+            "module": "astroai_workload.autoscaler.CanfarNodeProvider",
+            "config": {
+                "worker_image": "img/ray-worker:t",
+                "cores": 4,
+                "ram_gb": 16,
+                "gpus": 2,
+                "ray_version": "2.56.1",
+            },
+        },
+        "c1",
+    )
+    assert provider._worker_image() == "img/ray-worker:t"
+    assert provider._worker_spec() == {"cores": 4, "ram_gb": 16, "gpus": 2}
+    assert provider._worker_env()["RAY_CLUSTER_ID"] == "c1"
+    assert provider._worker_env()["RAY_WORKER_CPUS"] == "4"
+    assert provider._worker_env()["RAY_WORKER_GPUS"] == "2"
