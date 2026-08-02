@@ -43,11 +43,14 @@ logger = logging.getLogger(__name__)
 # Ray 2.56 moved the provider base to the public `ray.autoscaler.node_provider`
 # module (the old `_private.node_provider` path no longer exists). Keep the
 # module importable without ray (py3.13 images) but never swallow the failure
-# silently — record it so the RuntimeError below names the real cause.
-_RAY_NODE_PROVIDER_IMPORT_ERROR: Exception | None = None
+# silently — record it so the RuntimeError below names the real cause. Catch
+# only ImportError (which covers ModuleNotFoundError for a missing ray): a
+# genuine bug elsewhere in ray's import chain must fail loudly, not silently
+# degrade the provider to an object subclass.
+_RAY_NODE_PROVIDER_IMPORT_ERROR: ImportError | None = None
 try:  # pragma: no cover - exercised in images where ray is installed
     from ray.autoscaler.node_provider import NodeProvider as _RayNodeProvider
-except Exception as exc:  # noqa: BLE001 — keep module importable without ray (py3.13)
+except ImportError as exc:
     _RayNodeProvider = object  # type: ignore[assignment,misc]
     _RAY_NODE_PROVIDER_IMPORT_ERROR = exc
     logger.warning("Ray NodeProvider import failed; autoscaler disabled: %r", exc)

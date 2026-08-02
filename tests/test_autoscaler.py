@@ -217,3 +217,59 @@ def test_provider_merges_nested_config(monkeypatch: pytest.MonkeyPatch) -> None:
     assert provider._worker_env()["RAY_CLUSTER_ID"] == "c1"
     assert provider._worker_env()["RAY_WORKER_CPUS"] == "4"
     assert provider._worker_env()["RAY_WORKER_GPUS"] == "2"
+
+
+def test_import_guard_falls_back_on_missing_ray(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ModuleNotFoundError (a subclass of ImportError) keeps the graceful fallback.
+
+    Without ray installed (py3.13 base images) the module must stay importable,
+    degrading _RayNodeProvider to object and recording the import error.
+    """
+    import builtins
+    import importlib
+
+    import astroai_workload.autoscaler as autoscaler_mod
+
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "ray.autoscaler.node_provider" or name.startswith(
+            "ray.autoscaler.node_provider."
+        ):
+            raise ModuleNotFoundError(f"No module named '{name}'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    try:
+        reloaded = importlib.reload(autoscaler_mod)
+        assert reloaded._RayNodeProvider is object
+        assert isinstance(reloaded._RAY_NODE_PROVIDER_IMPORT_ERROR, ModuleNotFoundError)
+    finally:
+        monkeypatch.setattr(builtins, "__import__", real_import)
+        importlib.reload(autoscaler_mod)  # restore normal module state
+
+
+def test_import_guard_propagates_non_importerror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A genuine bug inside ray's import chain must fail loudly, not be swallowed."""
+    import builtins
+    import importlib
+
+    import astroai_workload.autoscaler as autoscaler_mod
+
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "ray.autoscaler.node_provider":
+            raise TypeError("boom inside ray import chain")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    try:
+        with pytest.raises(TypeError, match="boom inside ray import chain"):
+            importlib.reload(autoscaler_mod)
+    finally:
+        # Failure-safe restore: even if the guard regresses and reload does NOT
+        # raise (so pytest.raises fails), never leave the shared module object
+        # in the fallback state for later tests in this file.
+        monkeypatch.setattr(builtins, "__import__", real_import)
+        importlib.reload(autoscaler_mod)  # restore normal module state
