@@ -28,6 +28,14 @@ from astroai_workload.worker_logs import archive_session_logs, read_worker_logs
 # step on CANFAR (Milestone B observed joined_workers=0 on stable joins).
 MIN_SETUP_STABLE_SECONDS = 10
 
+# CANFAR session listings are eventually consistent: a single session_info()
+# miss right after launch is a transient lag, not a vanished session. Only
+# orphan a worker after this many CONSECUTIVE misses (and never while Ray
+# still lists the node as live) so a healthy worker cannot be dropped from
+# joined_workers by one listing blip (observed in the Milestone B remote run:
+# canfar_status=Running + ray_joined=true but phase=Orphaned).
+ORPHAN_MISS_THRESHOLD = 3
+
 
 def reconcile_cluster(
     *,
@@ -61,12 +69,22 @@ def reconcile_cluster(
         if auth.authenticated:
             info = canfar.session_info(worker.session_id)
             if info:
+                worker.orphan_misses = 0
                 worker.canfar_status = str(info.get("status") or "Unknown")
                 _apply_canfar_phase(worker)
                 enrich_worker_failure(canfar, worker)
             elif worker.canfar_status not in {None, "Unknown"}:
-                worker.phase = "Orphaned"
-                worker.last_error = "session not found in CANFAR"
+                # Ray still sees the node -> CANFAR listing lag, not a dead
+                # session. Keep the worker active; only orphan after repeated
+                # consecutive misses with no Ray presence.
+                still_live = bool(worker.worker_ip and worker.worker_ip in worker_ray_ips)
+                if still_live:
+                    worker.orphan_misses = 0
+                else:
+                    worker.orphan_misses += 1
+                    if worker.orphan_misses >= ORPHAN_MISS_THRESHOLD:
+                        worker.phase = "Orphaned"
+                        worker.last_error = "session not found in CANFAR"
             archive_session_logs(
                 canfar=canfar,
                 store=store,
@@ -83,7 +101,11 @@ def reconcile_cluster(
             worker.ray_node_id = ip_to_node.get(worker.worker_ip)
             if worker.phase not in TERMINAL_WORKER_PHASES and worker.canfar_status == "Running":
                 worker.phase = "Ray Healthy"
-        elif worker.canfar_status == "Running" and not worker.ray_joined:
+        elif (
+            worker.phase not in TERMINAL_WORKER_PHASES
+            and worker.canfar_status == "Running"
+            and not worker.ray_joined
+        ):
             worker.phase = "Ray Joining"
 
     if state.phase in ACTIVE_CLUSTER_PHASES:

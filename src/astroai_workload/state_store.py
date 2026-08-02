@@ -49,6 +49,9 @@ class WorkerRecord:
     updated_at: str = field(default_factory=_utc_now)
     last_error: str | None = None
     logs_path: str | None = None
+    # Consecutive CANFAR session_info() misses; used by reconcile to tolerate
+    # eventually-consistent session listings before orphaning a worker.
+    orphan_misses: int = 0
 
 
 @dataclass

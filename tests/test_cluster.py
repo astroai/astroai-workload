@@ -65,6 +65,7 @@ from astroai_workload.cluster import (  # noqa: E402
     validate_cluster_create,
 )
 from astroai_workload.reconcile import (  # noqa: E402
+    ORPHAN_MISS_THRESHOLD,
     _apply_canfar_phase,
     _refresh_cluster_phase,
     reconcile_cluster,
@@ -353,6 +354,124 @@ class TestReconcileCluster:
         assert w.ray_joined is True
         assert w.ray_node_id == "node-1"
         assert w.phase == "Ray Healthy"
+
+    def test_single_session_info_miss_does_not_orphan_live_worker(
+        self, store: StateStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # CANFAR session listings are eventually consistent — a single miss on
+        # a worker Ray still sees must NOT orphan it (Milestone B remote run:
+        # canfar_status=Running + ray_joined=true but phase=Orphaned).
+        canfar = MagicMock()
+        _auth_ok(canfar)
+        canfar.session_info.return_value = {}
+        store.save(
+            _state(
+                phase="Creating",
+                workers=[
+                    WorkerRecord(
+                        session_id="w1",
+                        name="w1",
+                        phase="Ray Healthy",
+                        canfar_status="Running",
+                        ray_joined=True,
+                        worker_ip="10.0.0.5",
+                    ),
+                ],
+            )
+        )
+        monkeypatch.setattr("astroai_workload.reconcile.manager_pod_ip", lambda: "10.0.0.1")
+        monkeypatch.setattr("astroai_workload.reconcile.ray_address", lambda: "10.0.0.1:6379")
+        monkeypatch.setattr("astroai_workload.reconcile.list_ray_nodes", lambda *a, **k: [])
+        monkeypatch.setattr(
+            "astroai_workload.reconcile.live_worker_node_ips", lambda *a, **k: {"10.0.0.5"}
+        )
+        monkeypatch.setattr(
+            "astroai_workload.reconcile.node_ip_to_id", lambda *a, **k: {"10.0.0.5": "node-1"}
+        )
+        with patch("astroai_workload.reconcile.archive_session_logs"):
+            result = reconcile_cluster(canfar=canfar, store=store)
+        assert result is not None
+        w = result.workers[0]
+        assert w.phase == "Ray Healthy"
+        assert w.last_error is None
+        assert w.orphan_misses == 0
+
+    def test_orphan_only_after_consecutive_misses(
+        self, store: StateStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        canfar = MagicMock()
+        _auth_ok(canfar)
+        canfar.session_info.return_value = {}
+        store.save(
+            _state(
+                phase="Creating",
+                workers=[
+                    WorkerRecord(
+                        session_id="w1",
+                        name="w1",
+                        phase="CANFAR Pending",
+                        canfar_status="Running",
+                        worker_ip="10.0.0.5",
+                    ),
+                ],
+            )
+        )
+        monkeypatch.setattr("astroai_workload.reconcile.manager_pod_ip", lambda: "10.0.0.1")
+        monkeypatch.setattr("astroai_workload.reconcile.ray_address", lambda: "10.0.0.1:6379")
+        monkeypatch.setattr("astroai_workload.reconcile.list_ray_nodes", lambda *a, **k: [])
+        monkeypatch.setattr(
+            "astroai_workload.reconcile.live_worker_node_ips", lambda *a, **k: set()
+        )
+        monkeypatch.setattr("astroai_workload.reconcile.node_ip_to_id", lambda *a, **k: {})
+        # Below the threshold: worker survives, miss counter accumulates.
+        with patch("astroai_workload.reconcile.archive_session_logs"):
+            result = reconcile_cluster(canfar=canfar, store=store)
+        assert result is not None
+        assert result.workers[0].phase != "Orphaned"
+        assert result.workers[0].orphan_misses == 1
+        # Reach the threshold across more reconciles.
+        for _ in range(ORPHAN_MISS_THRESHOLD - 1):
+            with patch("astroai_workload.reconcile.archive_session_logs"):
+                result = reconcile_cluster(canfar=canfar, store=store)
+        assert result is not None
+        w = result.workers[0]
+        assert w.phase == "Orphaned"
+        assert w.last_error == "session not found in CANFAR"
+
+    def test_miss_counter_resets_on_success(
+        self, store: StateStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        canfar = MagicMock()
+        _auth_ok(canfar)
+        store.save(
+            _state(
+                phase="Creating",
+                workers=[
+                    WorkerRecord(
+                        session_id="w1",
+                        name="w1",
+                        phase="CANFAR Pending",
+                        canfar_status="Running",
+                        worker_ip="10.0.0.5",
+                        orphan_misses=2,
+                    ),
+                ],
+            )
+        )
+        monkeypatch.setattr("astroai_workload.reconcile.manager_pod_ip", lambda: "10.0.0.1")
+        monkeypatch.setattr("astroai_workload.reconcile.ray_address", lambda: "10.0.0.1:6379")
+        monkeypatch.setattr("astroai_workload.reconcile.list_ray_nodes", lambda *a, **k: [])
+        monkeypatch.setattr(
+            "astroai_workload.reconcile.live_worker_node_ips", lambda *a, **k: set()
+        )
+        monkeypatch.setattr("astroai_workload.reconcile.node_ip_to_id", lambda *a, **k: {})
+        canfar.session_info.return_value = {"status": "Running"}
+        with patch("astroai_workload.reconcile.archive_session_logs"):
+            result = reconcile_cluster(canfar=canfar, store=store)
+        assert result is not None
+        w = result.workers[0]
+        assert w.orphan_misses == 0
+        assert w.phase != "Orphaned"
 
 
 # ===============================================================
