@@ -61,6 +61,7 @@ def _tool_cluster_ensure(args: dict[str, Any]) -> dict[str, Any]:
         ram=int(args.get("ram", 4)),
         gpus=int(args.get("gpus", 0)),
         timeout=int(args.get("timeout", 1800)),
+        require_preflight=bool(args.get("require_preflight", False)),
     )
 
 
@@ -117,6 +118,15 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "integer",
                     "description": "Wait timeout (seconds).",
                     "default": 1800,
+                },
+                "require_preflight": {
+                    "type": "boolean",
+                    "description": (
+                        "Enforce the network preflight gate before launching "
+                        "workers. Off by default — Skaha headless probes can "
+                        "hang on some deployments; enable when it works."
+                    ),
+                    "default": False,
                 },
             },
         },

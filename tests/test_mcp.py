@@ -89,6 +89,50 @@ def test_tools_call_cluster_ensure_business_error(
     assert "No manager found" in resp["result"]["content"][0]["text"]
 
 
+def test_tools_call_cluster_ensure_forwards_require_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The MCP tool forwards require_preflight (default False) to the payload."""
+    captured: dict = {}
+
+    def _fake(**kwargs):
+        captured.update(kwargs)
+        return {
+            "manager_url": "https://x/session/contrib/abc",
+            "jobs_address": "https://x/session/contrib/abc/dashboard",
+            "dashboard_url": "https://x/session/contrib/abc/dashboard",
+            "cluster_phase": "Running",
+            "joined_workers": 2,
+            "worker_count": 2,
+        }
+
+    monkeypatch.setattr("astroai_workload.mcp.cluster_ensure_payload", _fake)
+
+    # Explicit require_preflight=True is forwarded.
+    handle_message(
+        _rpc(
+            "tools/call",
+            {"name": "cluster_ensure", "arguments": {"workers": 2, "require_preflight": True}},
+        )
+    )
+    assert captured.get("require_preflight") is True
+    assert captured.get("workers") == 2
+
+    # Default (absent) must be False — agent one-click flow on Skaha where the
+    # headless preflight probe can hang.
+    captured.clear()
+    handle_message(_rpc("tools/call", {"name": "cluster_ensure", "arguments": {"workers": 1}}))
+    assert captured.get("require_preflight") is False
+
+
+def test_tools_list_cluster_ensure_schema_has_require_preflight() -> None:
+    resp = handle_message(_rpc("tools/list"))
+    ensure = next(t for t in resp["result"]["tools"] if t["name"] == "cluster_ensure")
+    props = ensure["inputSchema"]["properties"]
+    assert props["require_preflight"]["type"] == "boolean"
+    assert props["require_preflight"]["default"] is False
+
+
 def test_tools_call_cluster_scale_invalid_args() -> None:
     resp = handle_message(
         _rpc("tools/call", {"name": "cluster_scale", "arguments": {"workers": "not-a-number"}})

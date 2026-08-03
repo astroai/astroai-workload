@@ -357,6 +357,7 @@ def cluster_ensure_payload(
     ram: int = 4,
     gpus: int = 0,
     timeout: int = 1800,
+    require_preflight: bool = False,
 ) -> dict[str, Any]:
     """Ensure a ray-manager is running; optionally launch workers.
 
@@ -364,6 +365,11 @@ def cluster_ensure_payload(
     MCP ``cluster_ensure`` tool. Resolves the manager (env → persisted connect
     URL → ``canfar ps`` discovery), waits for /readyz, optionally creates
     workers, and returns the Jobs address + Dashboard URL as a JSON-safe dict.
+
+    ``require_preflight`` defaults to False: on some Skaha deployments the
+    headless preflight probe never leaves Pending (known platform quirk), which
+    would otherwise block worker creation for agent one-click flows. Agents can
+    pass ``require_preflight=True`` to enforce the network preflight gate.
 
     Raises RuntimeError with a human-readable message when no manager can be
     resolved or the manager is not ready.
@@ -404,6 +410,7 @@ def cluster_ensure_payload(
             cores=cores,
             ram_gb=ram,
             gpus=gpus,
+            require_preflight=require_preflight,
             async_mode=True,
         )
         created = payload
@@ -436,6 +443,17 @@ def cluster_cmd_ensure(
     ram: Annotated[int, typer.Option("--ram", help="RAM GiB per worker.")] = 4,
     gpus: Annotated[int, typer.Option("--gpus", help="GPUs per worker.")] = 0,
     timeout: Annotated[int, typer.Option("--timeout", help="Wait timeout (seconds).")] = 1800,
+    require_preflight: Annotated[
+        bool,
+        typer.Option(
+            "--require-preflight",
+            help=(
+                "Enforce the network preflight gate before launching workers. "
+                "Off by default (Skaha headless probes can hang on some "
+                "deployments); set it when the platform preflight works."
+            ),
+        ),
+    ] = False,
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Ensure a ray-manager is running; optionally launch workers.
@@ -446,7 +464,13 @@ def cluster_cmd_ensure(
     """
     try:
         result = cluster_ensure_payload(
-            address=address, workers=workers, cores=cores, ram=ram, gpus=gpus, timeout=timeout
+            address=address,
+            workers=workers,
+            cores=cores,
+            ram=ram,
+            gpus=gpus,
+            timeout=timeout,
+            require_preflight=require_preflight,
         )
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
