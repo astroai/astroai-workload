@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -194,6 +195,32 @@ def test_write_autoscaling_config(tmp_path: pytest.MonkeyPatch) -> None:
     # memory is bytes (16 GiB = 16 * 1024**3), not MiB.
     assert f"memory: {16 * 1024 * 1024 * 1024}" in text
     assert "memory: 16384" not in text
+
+
+def test_write_autoscaling_config_idle_timeout_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """idle_timeout_minutes param + RAY_AUTOSCALING_IDLE_TIMEOUT_MINUTES env win
+    over the baked 5-minute default."""
+    out = tmp_path / "autoscaling.yaml"
+    path = write_autoscaling_config(
+        path=out,
+        cluster_name="c1",
+        worker_count=0,
+        max_workers=3,
+        idle_timeout_minutes=2,
+    )
+    assert "idle_timeout_minutes: 2" in path.read_text(encoding="utf-8")
+
+    # env fallback when the param is not passed
+    monkeypatch.setenv("RAY_AUTOSCALING_IDLE_TIMEOUT_MINUTES", "1")
+    path2 = write_autoscaling_config(
+        path=tmp_path / "a2.yaml",
+        cluster_name="c1",
+        worker_count=0,
+        max_workers=3,
+    )
+    assert "idle_timeout_minutes: 1" in path2.read_text(encoding="utf-8")
 
 
 def test_provider_merges_nested_config(monkeypatch: pytest.MonkeyPatch) -> None:

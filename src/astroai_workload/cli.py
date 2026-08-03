@@ -622,6 +622,14 @@ def autoscaler_cmd_write_config(
     ray_head_port: Annotated[int, typer.Option("--ray-head-port")] = 6379,
     heartbeat_path: Annotated[str | None, typer.Option("--heartbeat-path")] = None,
     spill_dir: Annotated[str | None, typer.Option("--spill-dir")] = None,
+    idle_timeout_minutes: Annotated[
+        int | None,
+        typer.Option(
+            "--idle-timeout-minutes",
+            help="Idle workers are terminated after this many minutes (default: env "
+            "RAY_AUTOSCALING_IDLE_TIMEOUT_MINUTES or 5).",
+        ),
+    ] = None,
 ) -> None:
     """Write a Ray autoscaling YAML backed by the CANFAR node provider.
 
@@ -644,6 +652,7 @@ def autoscaler_cmd_write_config(
         ray_head_port=ray_head_port,
         heartbeat_path=heartbeat_path,
         spill_dir=spill_dir,
+        idle_timeout_minutes=idle_timeout_minutes,
     )
     print(out)
 

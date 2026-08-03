@@ -235,11 +235,16 @@ def write_autoscaling_config(
     ray_head_port: int = 6379,
     heartbeat_path: str | None = None,
     spill_dir: str | None = None,
+    idle_timeout_minutes: int | None = None,
 ) -> Path:
     """Write a Ray autoscaling YAML using the CANFAR node provider.
 
     ``worker_count`` is the initial ``min_workers``; the autoscaler grows to
     ``max_workers`` on demand and shrinks back when idle.
+
+    ``idle_timeout_minutes`` overrides the baked 5-minute idle timeout
+    (default: env ``RAY_AUTOSCALING_IDLE_TIMEOUT_MINUTES`` or 5) — tests and
+    operators can shrink idle workers faster without rebuilding.
     """
     from astroai_workload.settings import _default_ray_version
 
@@ -247,6 +252,9 @@ def write_autoscaling_config(
     image = worker_image or _default_worker_image()
     hb = heartbeat_path or os.environ.get("RAY_MANAGER_HEARTBEAT_PATH", "")
     spill = spill_dir or f"{os.environ.get('SCRATCH', '/scratch')}/ray/{cluster_name}"
+    idle = idle_timeout_minutes if idle_timeout_minutes is not None else int(
+        os.environ.get("RAY_AUTOSCALING_IDLE_TIMEOUT_MINUTES", "5")
+    )
 
     provider_config: dict[str, Any] = {
         "worker_image": image,
@@ -273,7 +281,7 @@ def write_autoscaling_config(
 cluster_name: {cluster_name}
 max_workers: {max_workers}
 head_node_type: ray.head.default
-idle_timeout_minutes: 5
+idle_timeout_minutes: {idle}
 
 auth: {{}}
 
